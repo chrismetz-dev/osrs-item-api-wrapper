@@ -96,7 +96,7 @@ class OsrsItemManager:
     def __init__(self, user_agent: str):
         """
         Initializes the item manager.
-        
+
         user_agent (str): A description of what you are using the item
             manager for and your contact information,
             for example: 'volume_tracker - @Cook#2222'."""
@@ -153,7 +153,16 @@ class OsrsItemManager:
                 items.append(item)
         return items
 
-    def get_ge_price_change(self, item: Item, ge_timestamp: Ge_Timestamp) -> str:
+    def _get_ge_data(self, item:Item, force_latest:bool):
+        data = None
+        if force_latest:
+            data = item._update_ge_data(self.session)
+        else:
+            data = item._get_ge_data(self.session)
+        
+        return data
+
+    def get_ge_price_change(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest:bool = False) -> str:
         """
         Returns the long-term % change in price of an item.
 
@@ -166,22 +175,22 @@ class OsrsItemManager:
         if not isinstance(ge_timestamp, Ge_Timestamp) or ge_timestamp == Ge_Timestamp.CURRENT or ge_timestamp == Ge_Timestamp.TODAY:
             raise NameError(
                 f'Time selected was not in the list of valid times: {list(Ge_Timestamp._member_names_)[2:]}')
-        return item._get_ge_data(self.session)[ge_timestamp.value]['change']
+        return self._get_ge_data(item, force_latest)[ge_timestamp.value]['change']
 
-    def get_ge_trend(self, item: Item, ge_timestamp: Ge_Timestamp) -> str:
+    def get_ge_trend(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest:bool = False) -> str:
         """Returns the trend of an item, 'positive', 'neutral', or 'negative'."""
         if not isinstance(ge_timestamp, Ge_Timestamp):
             raise NameError(
                 f'Time selected was not in the list of valid times: {list(Ge_Timestamp._member_names_)}')
-        return item._get_ge_data(self.session)[ge_timestamp]['trend']
+        return self._get_ge_data(item, force_latest)[ge_timestamp]['trend']
 
-    def get_ge_today_price_change(self, item: Item) -> str:
+    def get_ge_today_price_change(self, item: Item, force_latest:bool = False) -> str:
         """Returns the amount an item has changed in price today eg '+7' or '-3'."""
-        return item._get_ge_data(self.session)['today']['price']
+        return self._get_ge_data(item, force_latest)['today']['price']
 
-    def get_ge_current_price(self, item: Item) -> int:
+    def get_ge_current_price(self, item: Item, force_latest:bool = False) -> int:
         """Returns the currently listed GE price as an int."""
-        return value_to_float(item._get_ge_data(self.session)['current']['price'])
+        return value_to_float(self._get_ge_data(item, force_latest)['current']['price'])
 
     def print_items(self, items: List[Item],
                     columns: List[str] = [
