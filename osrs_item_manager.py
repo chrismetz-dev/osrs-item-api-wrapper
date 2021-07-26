@@ -23,6 +23,16 @@ class Ge_Timestamp(Enum):
     DAY180 = 'day180'
 
 
+def _value_or_none(data, key):
+    """Returns the value of data at key or None if they key does not exist or if data is not subscriptable."""
+    try:
+        return data[key]
+    except KeyError:
+        return None
+    except TypeError:
+        return None
+
+
 def value_to_float(x: str):
     """
     Converts strings with abbreviated numbers to floats
@@ -65,8 +75,12 @@ class Item:
     low_price_volume: Dict[Timestamp, int]
 
     def __post_init__(self):
-        self.margin = self.high_price-self.low_price
-        self.roi = self.margin/self.low_price * 100
+        if self.high_price and self.low_price:
+            self.margin = self.high_price-self.low_price
+            self.roi = self.margin/self.low_price * 100
+        else:
+            self.margin = None
+            self.roi = None
         self.platinumtokens_link = f'https://platinumtokens.com/item/{self.name.lower().replace(" ", "-")}'
         self._ge_data_endpoint = f'http://services.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={self.id}'
         self._ge_data = None
@@ -122,30 +136,51 @@ class OsrsItemManager:
         Args:
             item_id (str): the ID of the item you want.
         """
-        try:
-            itm_d = self.item_info[item_id]  # item information data
-            itm_pl = self.price_info[Timestamp.LATEST][item_id]
-            avg_high_price = {}
-            high_price_volume = {}
-            avg_low_price = {}
-            low_price_volume = {}
-            for timestamp in Timestamp:
-                if timestamp == Timestamp.LATEST:
-                    continue
+        itm_d = _value_or_none(self.item_info, item_id)
+        itm_pl = _value_or_none(self.price_info[Timestamp.LATEST], item_id)
+
+        i_id = item_id
+        i_members = _value_or_none(itm_d, 'members')
+        i_lowalch = _value_or_none(itm_d, 'lowalch')
+        i_limit = _value_or_none(itm_d, 'limit')
+        i_value = _value_or_none(itm_d, 'value')
+        i_highalch = _value_or_none(itm_d, 'highalch')
+        i_name = _value_or_none(itm_d, 'name')
+        i_high = _value_or_none(itm_pl, 'high')
+        i_low = _value_or_none(itm_pl, 'low')
+
+        avg_high_price = {}
+        high_price_volume = {}
+        avg_low_price = {}
+        low_price_volume = {}
+        for timestamp in Timestamp:
+            if timestamp == Timestamp.LATEST:
+                continue
+            try:
+                # Not all items are availible in this data.
+                # Assign none and skip if this is the case.
                 data = self.price_info[timestamp][item_id]
-                avg_high_price[timestamp] = data['avgHighPrice']
-                high_price_volume[timestamp] = data['highPriceVolume']
-                avg_low_price[timestamp] = data['avgLowPrice']
-                low_price_volume[timestamp] = data['lowPriceVolume']
-            return Item(itm_d['id'], itm_d['members'], itm_d['lowalch'],
-                        itm_d['limit'], itm_d['value'], itm_d['highalch'],
-                        itm_d['name'], itm_pl['high'], itm_pl['low'],
-                        avg_high_price, high_price_volume, avg_low_price, low_price_volume)
-        except KeyError:
-            return None
+            except KeyError:
+                avg_high_price[timestamp] = None
+                high_price_volume[timestamp] = None
+                avg_low_price[timestamp] = None
+                low_price_volume[timestamp] = None
+                continue
+
+            # The data is there, so if this breaks we want an error.
+            avg_high_price[timestamp] = data['avgHighPrice']
+            high_price_volume[timestamp] = data['highPriceVolume']
+            avg_low_price[timestamp] = data['avgLowPrice']
+            low_price_volume[timestamp] = data['lowPriceVolume']
+        return Item(i_id, i_members, i_lowalch,
+                    i_limit, i_value, i_highalch,
+                    i_name, i_high, i_low,
+                    avg_high_price, high_price_volume, avg_low_price, low_price_volume)
 
     def get_items(self) -> List[Item]:
         """Returns a list of all items."""
+        # I tried to do a list comphrehension here but things got weird...
+        # TODO try again.
         items = []
         for item_id in list(self.item_info.keys()):
             item = self.get_item(item_id)
@@ -153,16 +188,16 @@ class OsrsItemManager:
                 items.append(item)
         return items
 
-    def _get_ge_data(self, item:Item, force_latest:bool):
+    def _get_ge_data(self, item: Item, force_latest: bool):
         data = None
         if force_latest:
             data = item._update_ge_data(self.session)
         else:
             data = item._get_ge_data(self.session)
-        
+
         return data
 
-    def get_ge_price_change(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest:bool = False) -> str:
+    def get_ge_price_change(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest: bool = False) -> str:
         """
         Returns the long-term % change in price of an item.
 
@@ -177,18 +212,18 @@ class OsrsItemManager:
                 f'Time selected was not in the list of valid times: {list(Ge_Timestamp._member_names_)[2:]}')
         return self._get_ge_data(item, force_latest)[ge_timestamp.value]['change']
 
-    def get_ge_trend(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest:bool = False) -> str:
+    def get_ge_trend(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest: bool = False) -> str:
         """Returns the trend of an item, 'positive', 'neutral', or 'negative'."""
         if not isinstance(ge_timestamp, Ge_Timestamp):
             raise NameError(
                 f'Time selected was not in the list of valid times: {list(Ge_Timestamp._member_names_)}')
         return self._get_ge_data(item, force_latest)[ge_timestamp]['trend']
 
-    def get_ge_today_price_change(self, item: Item, force_latest:bool = False) -> str:
+    def get_ge_today_price_change(self, item: Item, force_latest: bool = False) -> str:
         """Returns the amount an item has changed in price today eg '+7' or '-3'."""
         return self._get_ge_data(item, force_latest)['today']['price']
 
-    def get_ge_current_price(self, item: Item, force_latest:bool = False) -> int:
+    def get_ge_current_price(self, item: Item, force_latest: bool = False) -> int:
         """Returns the currently listed GE price as an int."""
         return value_to_float(self._get_ge_data(item, force_latest)['current']['price'])
 
