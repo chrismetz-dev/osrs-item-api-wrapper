@@ -1,7 +1,7 @@
 """A module containing useful tools for obtaining item information and pricing data."""
 import requests
 from prettytable import PrettyTable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict
 
@@ -57,6 +57,9 @@ def value_to_float(x: str):
     return float(x)
 
 
+TimedData = Dict[Timestamp, int]
+
+
 @dataclass
 class Item:
     """A class to store item information and pricing."""
@@ -69,10 +72,13 @@ class Item:
     name: str
     high_price: int
     low_price: int
-    avg_high_price: Dict[Timestamp, int]
-    high_price_volume: Dict[Timestamp, int]
-    avg_low_price: Dict[Timestamp, int]
-    low_price_volume: Dict[Timestamp, int]
+    avg_high_price: TimedData
+    high_price_volume: TimedData
+    avg_low_price: TimedData
+    low_price_volume: TimedData
+    margin: int = field(init=False)
+    roi: int = field(init=False)
+    platinumtokens_link: str = field(init=False)
 
     def __post_init__(self):
         if self.high_price and self.low_price:
@@ -84,6 +90,32 @@ class Item:
         self.platinumtokens_link = f'https://platinumtokens.com/item/{self.name.lower().replace(" ", "-")}'
         self._ge_data_endpoint = f'http://services.runescape.com/m=itemdb_oldschool/api/catalogue/detail.json?item={self.id}'
         self._ge_data = None
+
+    def _get_timestamp_data(self, attr: str, timestamp: Timestamp) -> TimedData:
+        if timestamp == Timestamp.LATEST:
+            raise KeyError(
+                "Latest is not a valid timestamp - 5 minutes or more is required for averages.")
+        return getattr(self, attr)[timestamp]
+
+    def get_avg_high_price(self, timestamp: Timestamp):
+        return self._get_timestamp_data('avg_high_price', timestamp)
+
+    def get_high_price_volume(self, timestamp: Timestamp):
+        return self._get_timestamp_data('high_price_volume', timestamp)
+
+    def get_avg_low_price(self, timestamp: Timestamp):
+        return self._get_timestamp_data('avg_low_price', timestamp)
+
+    def get_low_price_volume(self, timestamp: Timestamp):
+        return self._get_timestamp_data('low_price_volume', timestamp)
+
+    def has_attr(self, attr):
+        return bool(getattr(self, attr))
+
+    def has_timedata(self, attr: str, timestamp: Timestamp):
+        if not self.has_attr(attr):
+            return False
+        return bool(getattr(self, attr)[timestamp])
 
     # Keep this as a separate function so that we can update GE data
     def _update_ge_data(self, session: requests.Session):
@@ -187,6 +219,39 @@ class OsrsItemManager:
             if item:
                 items.append(item)
         return items
+
+    def filter_empty_items(self, items: List[Item], attributes: List[str] = list(vars(Item)['__annotations__'])):
+        filtered_items = []
+        for item in items:
+            include_item_flag = True
+            for attr in attributes:
+                if not item.has_attr(attr):
+                    include_item_flag = False
+                    break
+            if include_item_flag:
+                filtered_items.append(item)
+        return filtered_items
+
+    # Lot of repeated code, maybe there's a more elegant way to do this?
+    def filter_empty_timedata(self,
+                              items: List[Item],
+                              attributes: List[str] = [
+                                  'avg_high_price', 'high_price_volume', 'avg_low_price', 'low_price_volume'],
+                              timestamps: List[Timestamp] = [ts for ts in Timestamp][1:]):
+        filtered_items = []
+        for item in items:
+            include_item_flag = True
+            for attr in attributes:
+                if not item.has_attr(attr):
+                    include_item_flag = False
+                    break
+                for ts in timestamps:
+                    if not item.has_timedata(attr, ts):
+                        include_item_flag = False
+                        break
+            if include_item_flag:
+                filtered_items.append(item)
+        return filtered_items
 
     def _get_ge_data(self, item: Item, force_latest: bool):
         data = None
