@@ -14,7 +14,7 @@ class Timestamp(Enum):
     SIX_HOUR = '6h'
 
 
-class Ge_Timestamp(Enum):
+class GeTimestamp(Enum):
     """Contains acceptable timestamps for the official GE."""
     CURRENT = 'current'
     TODAY = 'today'
@@ -98,21 +98,27 @@ class Item:
         return getattr(self, attr)[timestamp]
 
     def get_avg_high_price(self, timestamp: Timestamp):
+        """Returns the average high price of the item over the timestamp period."""
         return self._get_timestamp_data('avg_high_price', timestamp)
 
     def get_high_price_volume(self, timestamp: Timestamp):
+        """Returns the volume of items sold at the high value over the timestamp period."""
         return self._get_timestamp_data('high_price_volume', timestamp)
 
     def get_avg_low_price(self, timestamp: Timestamp):
+        """Returns the average low price of the item over the timestamp period."""
         return self._get_timestamp_data('avg_low_price', timestamp)
 
     def get_low_price_volume(self, timestamp: Timestamp):
+        """Returns the volume of items sold at the low value over the timestamp period."""
         return self._get_timestamp_data('low_price_volume', timestamp)
 
     def has_attr(self, attr):
+        """returns true if the attribute is not None"""
         return bool(getattr(self, attr))
 
     def has_timedata(self, attr: str, timestamp: Timestamp):
+        """returns true if the attribute is not None at the provided timestamp"""
         if not self.has_attr(attr):
             return False
         return bool(getattr(self, attr)[timestamp])
@@ -221,6 +227,7 @@ class OsrsItemManager:
         return items
 
     def filter_empty_items(self, items: List[Item], attributes: List[str] = list(vars(Item)['__annotations__'])):
+        """Removes items with None values at the provided attributes."""
         filtered_items = []
         for item in items:
             include_item_flag = True
@@ -238,6 +245,7 @@ class OsrsItemManager:
                               attributes: List[str] = [
                                   'avg_high_price', 'high_price_volume', 'avg_low_price', 'low_price_volume'],
                               timestamps: List[Timestamp] = [ts for ts in Timestamp][1:]):
+        """Removes items with None values at the provided attributes and timestamps."""
         filtered_items = []
         for item in items:
             include_item_flag = True
@@ -262,31 +270,29 @@ class OsrsItemManager:
 
         return data
 
-    def get_ge_price_change(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest: bool = False) -> str:
+    def get_ge_price_change(self, item: Item, ge_timestamp: GeTimestamp, force_latest: bool = False) -> float:
         """
-        Returns the long-term % change in price of an item.
+        Returns the long-term % change in price of an item over the provided timestamp.
 
-        Sample output: '-32.0%' or '+1.0%'
+        Sample output: -32.0 or 1.0
 
         Args:
             item (Item): an instance of the item dataclass
-            ge_timestamp (Ge_Timestamp): A valid timestamp of 30 days or longer.
+            ge_timestamp (GeTimestamp): A valid timestamp of 30 days or longer.
+            force_latest (bool): Forces the cache to update with the most recent data (slow!)
         """
-        if not isinstance(ge_timestamp, Ge_Timestamp) or ge_timestamp == Ge_Timestamp.CURRENT or ge_timestamp == Ge_Timestamp.TODAY:
+        if not isinstance(ge_timestamp, GeTimestamp) or ge_timestamp == GeTimestamp.CURRENT or ge_timestamp == GeTimestamp.TODAY:
             raise NameError(
-                f'Time selected was not in the list of valid times: {list(Ge_Timestamp._member_names_)[2:]}')
-        return self._get_ge_data(item, force_latest)[ge_timestamp.value]['change']
+                f'Time selected was not in the list of valid times: {list(GeTimestamp._member_names_)[2:]}')
+        return float(self._get_ge_data(item, force_latest)[ge_timestamp.value]['change'].strip('%'))
 
-    def get_ge_trend(self, item: Item, ge_timestamp: Ge_Timestamp, force_latest: bool = False) -> str:
+    def get_ge_trend(self, item: Item, ge_timestamp: GeTimestamp, force_latest: bool = False) -> str:
         """Returns the trend of an item, 'positive', 'neutral', or 'negative'."""
-        if not isinstance(ge_timestamp, Ge_Timestamp):
-            raise NameError(
-                f'Time selected was not in the list of valid times: {list(Ge_Timestamp._member_names_)}')
-        return self._get_ge_data(item, force_latest)[ge_timestamp]['trend']
+        return self._get_ge_data(item, force_latest)[ge_timestamp.value]['trend']
 
-    def get_ge_today_price_change(self, item: Item, force_latest: bool = False) -> str:
-        """Returns the amount an item has changed in price today eg '+7' or '-3'."""
-        return self._get_ge_data(item, force_latest)['today']['price']
+    def get_ge_today_price_change(self, item: Item, force_latest: bool = False) -> int:
+        """Returns the amount an item has changed in price today."""
+        return int(self._get_ge_data(item, force_latest)['today']['price'])
 
     def get_ge_current_price(self, item: Item, force_latest: bool = False) -> int:
         """Returns the currently listed GE price as an int."""
@@ -308,7 +314,7 @@ class OsrsItemManager:
             getters ([func]): A list of functions to get the data for
                 each column.
         """
-        table = PrettyTable(['Name', 'Low Price', 'High Price', 'Link'])
+        table = PrettyTable(columns)
         for item in items:
             table.add_row([g(item) for g in getters])
         print(table)
